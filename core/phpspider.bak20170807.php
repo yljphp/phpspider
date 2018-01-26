@@ -25,6 +25,15 @@ use phpspider\core\util;
 use phpspider\core\log;
 use Exception;
 
+//require CORE.'/log.php';
+//require CORE.'/requests.php';
+//require CORE.'/selector.php';
+//require CORE.'/util.php';
+//require CORE.'/db.php';
+//require CORE.'/cache.php';
+//require CORE."/worker.php"; 
+//require CORE."/phpspider.php"; 
+
 // 启动的时候生成data目录
 util::path_exists(PATH_DATA);
 util::path_exists(PATH_DATA."/lock");
@@ -38,7 +47,7 @@ class phpspider
      * 版本号
      * @var string
      */
-    const VERSION = '2.1.3';
+    const VERSION = '3.0.4';
 
     /**
      * 爬虫爬取每个网页的时间间隔,0表示不延时, 单位: 毫秒
@@ -156,7 +165,7 @@ class phpspider
          'headers'     => array(), // 此url的Headers, 可以为空
          'params'      => array(), // 发送请求时需添加的参数, 可以为空
          'context_data'=> '',      // 此url附加的数据, 可以为空
-         'proxy'       => false,   // 是否使用代理
+         'proxies'     => false,   // 是否使用代理
          'try_num'     => 0        // 抓取次数
          'max_try'     => 0        // 允许抓取失败次数
      ) 
@@ -360,16 +369,18 @@ class phpspider
             exit;
         }
 
-        $configs['name']       = isset($configs['name'])       ? $configs['name']       : 'phpspider';
-        $configs['proxy']      = isset($configs['proxy'])      ? $configs['proxy']      : false;
-        $configs['user_agent'] = isset($configs['user_agent']) ? $configs['user_agent'] : self::AGENT_PC;
-        $configs['client_ip']  = isset($configs['client_ip'])  ? $configs['client_ip']  : array();
-        $configs['interval']   = isset($configs['interval'])   ? $configs['interval']   : self::INTERVAL;
-        $configs['timeout']    = isset($configs['timeout'])    ? $configs['timeout']    : self::TIMEOUT;
-        $configs['max_try']    = isset($configs['max_try'])    ? $configs['max_try']    : self::MAX_TRY;
-        $configs['max_depth']  = isset($configs['max_depth'])  ? $configs['max_depth']  : 0;
-        $configs['max_fields'] = isset($configs['max_fields']) ? $configs['max_fields'] : 0;
-        $configs['export']     = isset($configs['export'])     ? $configs['export']     : array();
+        $configs['name']        = isset($configs['name'])        ? $configs['name']        : 'phpspider';
+        $configs['proxies']     = isset($configs['proxies'])     ? $configs['proxies']     : '';
+        $configs['user_agent']  = isset($configs['user_agent'])  ? $configs['user_agent']  : self::AGENT_PC;
+        $configs['user_agents'] = isset($configs['user_agents']) ? $configs['user_agents'] : null;
+        $configs['client_ip']   = isset($configs['client_ip'])   ? $configs['client_ip']   : null;
+        $configs['client_ips']  = isset($configs['client_ips'])  ? $configs['client_ips']  : null;
+        $configs['interval']    = isset($configs['interval'])    ? $configs['interval']    : self::INTERVAL;
+        $configs['timeout']     = isset($configs['timeout'])     ? $configs['timeout']     : self::TIMEOUT;
+        $configs['max_try']     = isset($configs['max_try'])     ? $configs['max_try']     : self::MAX_TRY;
+        $configs['max_depth']   = isset($configs['max_depth'])   ? $configs['max_depth']   : 0;
+        $configs['max_fields']  = isset($configs['max_fields'])  ? $configs['max_fields']  : 0;
+        $configs['export']      = isset($configs['export'])      ? $configs['export']      : array();
 
         // csv、sql、db
         self::$export_type  = isset($configs['export']['type'])  ? $configs['export']['type']  : '';
@@ -403,17 +414,12 @@ class phpspider
         }
 
         // 不同项目的采集以采集名称作为前缀区分
-        if (isset(self::$queue_config['prefix'])) 
+        if (isset($GLOBALS['config']['redis']['prefix'])) 
         {
-            self::$queue_config['prefix'] = self::$queue_config['prefix'].'-'.md5($configs['name']);
+            $GLOBALS['config']['redis']['prefix'] = $GLOBALS['config']['redis']['prefix'].'-'.md5($configs['name']);
         }
 
         self::$configs = $configs;
-    }
-
-    public function get_config($name)
-    {
-        return empty(self::$configs[$name]) ? array() : self::$configs[$name];
     }
 
     public function add_scan_url($url, $options = array(), $allowed_repeat = true)
@@ -663,11 +669,9 @@ class phpspider
         if (function_exists('pcntl_signal')) 
         {
             // stop
-            // static调用方式
-            //pcntl_signal(SIGINT, array(__CLASS__, 'signal_handler'), false);
-            pcntl_signal(SIGINT, array(&$this, 'signal_handler'), false);
+            pcntl_signal(SIGINT, array(__CLASS__, 'signal_handler'), false);
             // status
-            pcntl_signal(SIGUSR2, array(&$this, 'signal_handler'), false);
+            pcntl_signal(SIGUSR2, array(__CLASS__, 'signal_handler'), false);
             // ignore
             pcntl_signal(SIGPIPE, SIG_IGN, false);
         }
@@ -873,14 +877,14 @@ class phpspider
             self::$configs['name'] = iconv("UTF-8", "GB2312//IGNORE", self::$configs['name']);
             log::$log_show = true;
         }
-        // 守护进程下也显示日志
-        elseif (self::$daemonize) 
-        {
-            log::$log_show = true;
-        }
         else 
         {
             log::$log_show = isset(self::$configs['log_show']) ? self::$configs['log_show'] : false;
+        }
+
+        if (self::$daemonize) 
+        {
+            log::$log_show = true;
         }
 
         if (log::$log_show)
@@ -900,10 +904,10 @@ class phpspider
         }
 
         // 如果是守护进程，恢复日志状态
-        //if (self::$daemonize) 
-        //{
-            //log::$log_show = isset(self::$configs['log_show']) ? self::$configs['log_show'] : false;
-        //}
+        if (self::$daemonize) 
+        {
+            log::$log_show = isset(self::$configs['log_show']) ? self::$configs['log_show'] : false;
+        }
 
         // 多任务和分布式都要清掉, 当然分布式只清自己的
         $this->init_redis();
@@ -979,8 +983,6 @@ class phpspider
             self::$collect_succ = 0;
             self::$collect_fail = 0;
 
-            queue::set_connect('default', self::$queue_config);
-            queue::init(); 
             $this->do_collect_page();
 
             // 这里用0表示正常退出
@@ -995,6 +997,8 @@ class phpspider
 
     public function do_collect_page() 
     {
+        queue::set_connect('default', self::$queue_config);
+        queue::init(); 
         while( $queue_lsize = $this->queue_lsize() )
         { 
             // 如果是主任务
@@ -1111,7 +1115,6 @@ class phpspider
                 'taskid'       => self::$taskid,
             ),
         );
-        //printf("memory usage: %.2f M\n", memory_get_usage() / 1024 / 1024 ); 
         unset($html);
 
         //--------------------------------------------------------------------------------
@@ -1227,15 +1230,25 @@ class phpspider
         requests::$output_encoding = 'utf-8';
         requests::set_timeout(self::$configs['timeout']);
         requests::set_useragent(self::$configs['user_agent']);
+        if (self::$configs['user_agents']) 
+        {
+            requests::set_useragents(self::$configs['user_agents']);
+        }
         if (self::$configs['client_ip']) 
         {
             requests::set_client_ip(self::$configs['client_ip']);
         }
+        if (self::$configs['client_ips']) 
+        {
+            requests::set_client_ips(self::$configs['client_ips']);
+        }
 
         // 是否设置了代理
-        if ($link['proxy']) 
+        if (!empty($link['proxies'])) 
         {
-            requests::set_proxy($link['proxy']);
+            requests::set_proxies($link['proxies']);
+            // 自动切换IP
+            requests::set_header('Proxy-Switch-Ip', 'yes');
         }
 
         // 如何设置了 HTTP Headers
@@ -1277,16 +1290,11 @@ class phpspider
             if ($http_code == 301 || $http_code == 302) 
             {
                 $info = requests::$info;
-                //if (isset($info['redirect_url'])) 
-                if (!empty($info['redirect_url'])) 
+                if (isset($info['redirect_url'])) 
                 {
                     $url = $info['redirect_url'];
                     requests::$input_encoding = null;
-                    $method = empty($link['method']) ? 'get' : strtolower($link['method']);
-                    $params = empty($link['params']) ? array() : $link['params'];
-                    $html = requests::$method($url, $params);
-                    // 有跳转的就直接获取就好，不要调用自己，容易进入死循环
-                    //$html = $this->request_url($url, $link);
+                    $html = $this->request_url($url, $link);
                     if ($html && !empty($link['context_data'])) 
                     {
                         $html .= $link['context_data'];
@@ -1550,9 +1558,6 @@ class phpspider
             }
             else
             {
-                $arr = explode("/", $base_url_path);
-                array_pop($arr);
-                $base_url_path = implode("/", $arr);
                 $url = $base_url_path.'/'.$url;
             }
         }
@@ -1610,9 +1615,9 @@ class phpspider
             unset($link['context_data']);
         }
 
-        if (empty($link['proxy'])) 
+        if (empty($link['proxies'])) 
         {
-            unset($link['proxy']);
+            unset($link['proxies']);
         }
 
         if (empty($link['try_num'])) 
@@ -1651,7 +1656,7 @@ class phpspider
             'headers'      => isset($link['headers'])      ? $link['headers']      : array(),    
             'params'       => isset($link['params'])       ? $link['params']       : array(),           
             'context_data' => isset($link['context_data']) ? $link['context_data'] : '',                
-            'proxy'        => isset($link['proxy'])        ? $link['proxy']        : self::$configs['proxy'],             
+            'proxies'      => isset($link['proxies'])      ? $link['proxies']      : self::$configs['proxies'],             
             'try_num'      => isset($link['try_num'])      ? $link['try_num']      : 0,                 
             'max_try'      => isset($link['max_try'])      ? $link['max_try']      : self::$configs['max_try'],
             'depth'        => isset($link['depth'])        ? $link['depth']        : 0,             
@@ -1680,11 +1685,6 @@ class phpspider
                 if (!isset($return))
                 {
                     log::warn("on_extract_page return value can't be empty");
-                }
-                // 返回false，跳过当前页面，内容不入库
-                elseif ($return === false)
-                {
-                    return false;
                 }
                 elseif (!is_array($return))
                 {
@@ -1770,7 +1770,7 @@ class phpspider
                 exit;
             }
 
-            $values = NULL;
+            $values = array();
             // 如果定义抽取规则
             if (!empty($conf['selector'])) 
             {
@@ -1781,13 +1781,10 @@ class phpspider
                     if (!empty($fields[$conf['attached_url']])) 
                     {
                         $collect_url = $this->fill_url($fields[$conf['attached_url']], $url);
-                        log::debug("Find attached content page: {$collect_url}");
+                        //log::debug("Find attached content page: {$collect_url}");
                         $link['url'] = $collect_url;
                         $link = $this->link_uncompress($link);
                         requests::$input_encoding = null;
-                        //$method = empty($link['method']) ? 'get' : strtolower($link['method']);
-                        //$params = empty($link['params']) ? array() : $link['params'];
-                        //$html = requests::$method($collect_url, $params);
                         $html = $this->request_url($collect_url, $link);
                         // 在一个attached_url对应的网页下载完成之后调用. 主要用来对下载的网页进行处理.
                         if ($this->on_download_attached_page) 
@@ -1819,13 +1816,8 @@ class phpspider
                 }
 
                 // field不为空而且存在子配置
-                if (isset($values) && !empty($conf['children'])) 
+                if (!empty($values) && !empty($conf['children'])) 
                 {
-                    // 如果提取到的结果是字符串，就转为数组，方便下面统一foreach
-                    if (!is_array($values)) 
-                    {
-                        $values = array($values);
-                    }
                     $child_values = array();
                     // 父项抽取到的html作为子项的提取内容
                     foreach ($values as $child_html) 
@@ -1845,13 +1837,12 @@ class phpspider
                 }
             }
 
-            if (!isset($values)) 
+            if (empty($values)) 
             {
                 // 如果值为空而且值设置为必须项, 跳出foreach循环
                 if ($required) 
                 {
-                    log::warn("Selector {$conf['name']}[{$conf['selector']}] not found, It's a must");
-                    // 清空整个 fields，当前页面就等于略过了
+                    // 清空整个 fields
                     $fields = array();
                     break;
                 }
@@ -1954,13 +1945,13 @@ class phpspider
             {
                 if (!function_exists('mysqli_connect'))
                 {
-                    log::error("Export data to a database need Mysql support, unable to load mysqli extension.");
+                    log::error("Export data to a database need Mysql support, Error: Unable to load mysqli extension.");
                     exit;
                 }
 
                 if (empty(self::$db_config)) 
                 {
-                    log::error("Export data to a database need Mysql support, you have not set a config array for connect.");
+                    log::error("Export data to a database need Mysql support, Error: You not set a config array for connect.");
                     exit;
                 }
 
@@ -1968,7 +1959,7 @@ class phpspider
                 @mysqli_connect($config['host'], $config['user'], $config['pass'], $config['name'], $config['port']);
                 if(mysqli_connect_errno())
                 {
-                    log::error("Export data to a database need Mysql support, ".mysqli_connect_error());
+                    log::error("Export data to a database need Mysql support, Error: ".mysqli_connect_error());
                     exit;
                 }
 
@@ -2008,7 +1999,7 @@ class phpspider
             {
                 foreach ($keys as $key) 
                 {
-                    $key = str_replace(self::$queue_config['prefix'].":", "", $key);
+                    $key = str_replace($GLOBALS['config']['redis']['prefix'].":", "", $key);
                     queue::del($key);
                 }
             }

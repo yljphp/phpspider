@@ -13,6 +13,10 @@
 // PHPSpider日志类文件
 //----------------------------------
 
+namespace phpspider\core;
+// 引入PATH_DATA
+require_once __DIR__ . '/constants.php';
+
 class log
 {
     public static $log_show = false;

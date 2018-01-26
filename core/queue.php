@@ -13,7 +13,12 @@
 // PHPSpider Redis操作类文件
 //----------------------------------
 
-class cls_redis
+namespace phpspider\core;
+
+use Redis;
+use Exception;
+
+class queue
 {
     /**
      *  redis链接标识符号
@@ -52,7 +57,7 @@ class cls_redis
             self::$links[self::$link_name] = new Redis();
             if (!self::$links[self::$link_name]->connect($config['host'], $config['port'], $config['timeout']))
             {
-                self::$error = "Unable to connect to redis server\nPlease check the configuration file config/inc_config.php";
+                self::$error = "Unable to connect to redis server";
                 unset(self::$links[self::$link_name]);
                 return false;
             }
@@ -62,7 +67,7 @@ class cls_redis
             {
                 if ( !self::$links[self::$link_name]->auth($config['pass']) ) 
                 {
-                    self::$error = "Redis Server authentication failed\nPlease check the configuration file config/inc_config.php";
+                    self::$error = "Redis Server authentication failed";
                     unset(self::$links[self::$link_name]);
                     return false;
                 }
@@ -70,6 +75,8 @@ class cls_redis
 
             $prefix = empty($config['prefix']) ? self::$prefix : $config['prefix'];
             self::$links[self::$link_name]->setOption(Redis::OPT_PREFIX, $prefix . ":");
+            // 永不超时
+            // ini_set('default_socket_timeout', -1); 无效，要用下面的做法
             self::$links[self::$link_name]->setOption(Redis::OPT_READ_TIMEOUT, -1);
             self::$links[self::$link_name]->select($config['db']);
         }
